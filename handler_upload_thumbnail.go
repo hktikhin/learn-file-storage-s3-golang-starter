@@ -3,7 +3,10 @@ package main
 import (
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
+	"os"
+	"path/filepath"
 
 	"github.com/bootdotdev/learn-file-storage-s3-golang-starter/internal/auth"
 	"github.com/bootdotdev/learn-file-storage-s3-golang-starter/internal/database"
@@ -43,12 +46,20 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 	}
 	defer file.Close()
 
-	mediaType := header.Header.Get("Content-Type")
-	images, err := io.ReadAll(file)
+	mediaType, _, err := mime.ParseMediaType(header.Header.Get("Content-Type"))
 	if err != nil {
-		respondWithError(w, http.StatusBadRequest, "Unable to parse image file", err)
+		respondWithError(w, http.StatusBadRequest, "Unable to fetch mediaType from file", err)
 		return
 	}
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Unable to fetch mediaType from file", err)
+		return
+	}
+	// image, err := io.ReadAll(file)
+	// if err != nil {
+	// 	respondWithError(w, http.StatusBadRequest, "Unable to parse image file", err)
+	// 	return
+	// }
 
 	video, err := cfg.db.GetVideo(videoID)
 	if err != nil {
@@ -63,11 +74,29 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 		respondWithError(w, http.StatusUnauthorized, "You are not the owner of the video", nil)
 		return
 	}
-	videoThumbnails[videoID] = thumbnail{
-		data:      images,
-		mediaType: mediaType,
+	// videoThumbnails[videoID] = thumbnail{
+	// 	data:      images,
+	// 	mediaType: mediaType,
+	// }
+	// thumbnailURL := fmt.Sprintf("https://sturdy-palm-tree-9wx4q976p99cwj-8091.app.github.dev/api/thumbnails/%s", video.ID.String())
+	// thumbnailURL := fmt.Sprintf("data:%s;base64,%s", mediaType, base64.StdEncoding.EncodeToString(image))
+	ext := "jpg"
+	if mediaType == "image/png" {
+		ext = "png"
 	}
-	thumbnailURL := fmt.Sprintf("https://sturdy-palm-tree-9wx4q976p99cwj-8091.app.github.dev/api/thumbnails/%s", video.ID.String())
+	assetPath := fmt.Sprintf("%s.%s", videoID.String(), ext)
+	filePath := filepath.Join(cfg.assetsRoot, assetPath)
+	dst, err := os.Create(filePath)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Unable to create file on disk", err)
+		return
+	}
+	defer dst.Close()
+	if _, err := io.Copy(dst, file); err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Unable to save file contents", err)
+		return
+	}
+	thumbnailURL := fmt.Sprintf("https://sturdy-palm-tree-9wx4q976p99cwj-8091.app.github.dev/assets/%s.%s", video.ID.String(), ext)
 	video.ThumbnailURL = &thumbnailURL
 	err = cfg.db.UpdateVideo(video)
 	if err != nil {
