@@ -2,9 +2,11 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 
 	"github.com/bootdotdev/learn-file-storage-s3-golang-starter/internal/auth"
+	"github.com/bootdotdev/learn-file-storage-s3-golang-starter/internal/database"
 	"github.com/google/uuid"
 )
 
@@ -28,10 +30,49 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-
 	fmt.Println("uploading thumbnail for video", videoID, "by user", userID)
 
 	// TODO: implement the upload here
+	const maxMemory = 10 << 20
+	r.ParseMultipartForm(maxMemory)
 
-	respondWithJSON(w, http.StatusOK, struct{}{})
+	file, header, err := r.FormFile("thumbnail")
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Unable to parse form file", err)
+		return
+	}
+	defer file.Close()
+
+	mediaType := header.Header.Get("Content-Type")
+	images, err := io.ReadAll(file)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Unable to parse image file", err)
+		return
+	}
+
+	video, err := cfg.db.GetVideo(videoID)
+	if err != nil {
+		respondWithError(w, 500, "Unable to fetch video from UUID", err)
+		return
+	}
+	if (video == database.Video{}) {
+		respondWithError(w, http.StatusNotFound, "Video not found", nil)
+		return
+	}
+	if video.UserID != userID {
+		respondWithError(w, http.StatusUnauthorized, "You are not the owner of the video", nil)
+		return
+	}
+	videoThumbnails[videoID] = thumbnail{
+		data:      images,
+		mediaType: mediaType,
+	}
+	thumbnailURL := fmt.Sprintf("https://sturdy-palm-tree-9wx4q976p99cwj-8091.app.github.dev/api/thumbnails/%s", video.ID.String())
+	video.ThumbnailURL = &thumbnailURL
+	err = cfg.db.UpdateVideo(video)
+	if err != nil {
+		respondWithError(w, 500, "Unable to update video", err)
+		return
+	}
+	respondWithJSON(w, http.StatusOK, video)
 }
