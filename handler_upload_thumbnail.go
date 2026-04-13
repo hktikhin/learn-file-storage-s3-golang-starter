@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"mime"
@@ -51,8 +53,8 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 		respondWithError(w, http.StatusBadRequest, "Unable to fetch mediaType from file", err)
 		return
 	}
-	if err != nil {
-		respondWithError(w, http.StatusBadRequest, "Unable to fetch mediaType from file", err)
+	if mediaType != "image/jpeg" && mediaType != "image/png" {
+		respondWithError(w, http.StatusBadRequest, "Unsupported media type", err)
 		return
 	}
 	// image, err := io.ReadAll(file)
@@ -84,7 +86,9 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 	if mediaType == "image/png" {
 		ext = "png"
 	}
-	assetPath := fmt.Sprintf("%s.%s", videoID.String(), ext)
+	key := make([]byte, 32)
+	rand.Read(key)
+	assetPath := fmt.Sprintf("%s.%s", base64.RawURLEncoding.EncodeToString(key), ext)
 	filePath := filepath.Join(cfg.assetsRoot, assetPath)
 	dst, err := os.Create(filePath)
 	if err != nil {
@@ -96,7 +100,7 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 		respondWithError(w, http.StatusInternalServerError, "Unable to save file contents", err)
 		return
 	}
-	thumbnailURL := fmt.Sprintf("https://sturdy-palm-tree-9wx4q976p99cwj-8091.app.github.dev/assets/%s.%s", video.ID.String(), ext)
+	thumbnailURL := fmt.Sprintf("https://sturdy-palm-tree-9wx4q976p99cwj-8091.app.github.dev/assets/%s", assetPath)
 	video.ThumbnailURL = &thumbnailURL
 	err = cfg.db.UpdateVideo(video)
 	if err != nil {

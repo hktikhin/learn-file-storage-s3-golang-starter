@@ -1,0 +1,16 @@
+services:
+  localstack:
+    image: localstack/localstack:latest
+    container_name: localstack
+    ports:
+      - "4566:4566"
+    environment:
+      - SERVICES=iam,s3,sts,cloudfront  # 明确指定启动这些服务
+      - DEBUG=1
+      - PERSISTENCE=1
+      - SKIP_SSL_CERT_DOWNLOAD=1
+      - ACTIVATE_PRO=0
+      - LOCALSTACK_AUTH_TOKEN=${LOCALSTACK_AUTH_TOKEN}
+    volumes:
+      - "./localstack_data:/var/lib/localstack"
+      - "/var/run/docker.sock:/var/run/docker.sock"
