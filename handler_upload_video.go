@@ -1,14 +1,18 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"mime"
 	"net/http"
 	"os"
+	"os/exec"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -17,6 +21,51 @@ import (
 	"github.com/bootdotdev/learn-file-storage-s3-golang-starter/internal/database"
 	"github.com/google/uuid"
 )
+
+type FFProbeOutput struct {
+	Streams []Stream `json:"streams"`
+}
+
+type Stream struct {
+	Width  int `json:"width"`
+	Height int `json:"height"`
+}
+
+func calculateAspectRatio(width, height int) string {
+	if width == 0 || height == 0 {
+		return "other"
+	}
+	ratio := float64(width) / float64(height)
+	const epsilon = 0.01
+
+	switch {
+	case math.Abs(ratio-16.0/9.0) < epsilon:
+		return "16:9"
+	case math.Abs(ratio-9.0/16.0) < epsilon:
+		return "9:16"
+	default:
+		return "other"
+	}
+}
+
+func getVideoAspectRatio(filePath string) (string, error) {
+	cmd := exec.Command("ffprobe", "-v", "error", "-print_format", "json", "-show_streams", filePath)
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	err := cmd.Run()
+	if err != nil {
+		return "", err
+	}
+	var ffp FFProbeOutput
+	if err := json.Unmarshal(out.Bytes(), &ffp); err != nil {
+		return "", err
+	}
+	if len(ffp.Streams) == 0 {
+		return "", fmt.Errorf("no streams found")
+	}
+	return calculateAspectRatio(ffp.Streams[0].Width, ffp.Streams[0].Height), nil
+
+}
 
 func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, int64((1 << 30)))
@@ -68,6 +117,11 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 	defer os.Remove(tmpFile.Name())
 	defer tmpFile.Close()
 	io.Copy(tmpFile, file)
+	aspectRatio, err := getVideoAspectRatio(tmpFile.Name())
+	if err != nil {
+		respondWithError(w, 500, "Unable to get aspect ratio for media", nil)
+		return
+	}
 	tmpFile.Seek(0, io.SeekStart)
 
 	ext := "mp4"
@@ -95,9 +149,18 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 			return
 		}
 	}
+
+	prefix := "other"
+	switch aspectRatio {
+	case "16:9":
+		prefix = "landscape"
+	case "9:16":
+		prefix = "portrait"
+	}
+
 	key := make([]byte, 32)
 	rand.Read(key)
-	assetPath := fmt.Sprintf("%s.%s", base64.RawURLEncoding.EncodeToString(key), ext)
+	assetPath := fmt.Sprintf("%s/%s.%s", prefix, base64.RawURLEncoding.EncodeToString(key), ext)
 
 	cfg.s3Client.PutObject(
 		context.TODO(),
