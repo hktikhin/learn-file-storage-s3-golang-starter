@@ -67,6 +67,16 @@ func getVideoAspectRatio(filePath string) (string, error) {
 
 }
 
+func processVideoForFastStart(filePath string) (string, error) {
+	outputPath := fmt.Sprintf("%s.processing", filePath)
+	cmd := exec.Command("ffmpeg", "-i", filePath, "-c", "copy", "-movflags", "faststart", "-f", "mp4", outputPath)
+	err := cmd.Run()
+	if err != nil {
+		return "", err
+	}
+	return outputPath, nil
+}
+
 func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, int64((1 << 30)))
 	videoIDString := r.PathValue("videoID")
@@ -122,7 +132,19 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		respondWithError(w, 500, "Unable to get aspect ratio for media", nil)
 		return
 	}
-	tmpFile.Seek(0, io.SeekStart)
+	newfilepath, err := processVideoForFastStart(tmpFile.Name())
+	if err != nil {
+		respondWithError(w, 500, "Unable to preprocessing the media", err)
+		return
+	}
+	processedFile, err := os.Open(newfilepath)
+	if err != nil {
+		respondWithError(w, 500, "Could not open processed video file", err)
+		return
+	}
+	defer processedFile.Close()
+	defer os.Remove(newfilepath)
+	// tmpFile.Seek(0, io.SeekStart)
 
 	ext := "mp4"
 
@@ -167,7 +189,7 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		&s3.PutObjectInput{
 			Bucket:      aws.String(cfg.s3Bucket),
 			Key:         aws.String(assetPath),
-			Body:        tmpFile,
+			Body:        processedFile,
 			ContentType: aws.String(mediaType),
 		},
 	)
