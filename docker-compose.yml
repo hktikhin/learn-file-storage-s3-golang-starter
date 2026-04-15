@@ -7,6 +7,8 @@ services:
     environment:
       - SERVICES=iam,s3,sts,cloudfront  # 明确指定启动这些服务
       - DEBUG=1
+      - ENFORCE_IAM=1
+      - S3_ACL_ENFORCEMENT=1
       - PERSISTENCE=1
       - SKIP_SSL_CERT_DOWNLOAD=1
       - ACTIVATE_PRO=0
