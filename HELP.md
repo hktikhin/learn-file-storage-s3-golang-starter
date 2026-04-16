@@ -64,7 +64,7 @@ curl -v -X POST http://127.0.0.1:8091/api/video_upload/2ae356b7-4384-44df-aa56-4
   -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJ0dWJlbHktYWNjZXNzIiwic3ViIjoiYWQyMzNkZDgtMjYwZS00MTE1LWI4NTYtYTgwZTU3M2RiODBlIiwiZXhwIjoxNzc4ODMxMjUxLCJpYXQiOjE3NzYyMzkyNTF9.QMHWTrB587FJzcDywRYWxhhKuNiE5xtMuOLLd5rHPh0" \
   -F "video=@samples/boots-video-horizontal.mp4;type=video/mp4"
 
-curl -v -X POST http://127.0.0.1:8091/api/video_upload/bd8aa302-ad05-48f2-8a3d-072cb304648a \
+curl -v -X POST http://127.0.0.1:8091/api/video_upload/81bed8c9-b423-4125-afd7-ad1abb50dbf2 \
   -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJ0dWJlbHktYWNjZXNzIiwic3ViIjoiMDUxNGI1YzMtMTJkNC00N2QwLTgyMTgtODYyNjlmODFhMzE3IiwiZXhwIjoxNzc4MzEyMTAyLCJpYXQiOjE3NzU3MjAxMDJ9.6pK6MRaxAjKnZw2twgT9wO6N-j0hcszZAG1MTj46Kr4" \
   -F "video=@samples/boots-video-vertical.mp4;type=video/mp4"
 
@@ -93,3 +93,74 @@ aws s3api put-public-access-block \
 aws s3 ls s3://tubely-private-99281
 
 aws s3api get-public-access-block --bucket tubely-private-99281
+
+aws s3api put-bucket-policy \
+    --bucket tubely-private-99281 \
+    --policy file://policy-private.json
+
+# cdn
+aws cloudfront create-distribution --distribution-config '{
+  "CallerReference": "tubelycdn-123", 
+  "Comment": "tubelycdn",
+  "Enabled": true,
+  "Origins": {
+    "Quantity": 1,
+    "Items": [
+      {
+        "Id": "S3-tubely-bucket",
+        "DomainName": "tubely-private-99281.s3.localhost.localstack.cloud:4566",
+        "S3OriginConfig": {
+          "OriginAccessIdentity": ""
+        }
+      }
+    ]
+  },
+  "DefaultCacheBehavior": {
+    "TargetOriginId": "S3-tubely-bucket",
+    "ForwardedValues": {
+      "QueryString": false,
+      "Cookies": { "Forward": "none" }
+    },
+    "TrustedSigners": { "Enabled": false, "Quantity": 0 },
+    "ViewerProtocolPolicy": "allow-all",
+    "MinTTL": 0
+  }
+}'
+
+aws cloudfront list-distributions --query "DistributionList.Items[*].{ID:Id,Status:Status,DomainName:DomainName}"
+
+curl c9191ae1.cloudfront.localhost.localstack.cloud:4566/
+curl c9191ae1.cloudfront.localhost.localstack.cloud:4566/landscape/e0UOUXkIwaLhnw5qGOm4ZgDFnxLow7QjWp0xoz_okcQ.mp4
+
+# s3 versioning
+
+aws s3api put-bucket-versioning \
+    --bucket tubely-82931 \
+    --versioning-configuration Status=Enabled
+
+cp samples/boots-image-horizontal.png bootsimg.png
+aws s3 cp bootsimg.png s3://tubely-82931/bootsimg.png
+
+rm bootsimg.png
+cp samples/boots-image-vertical.png bootsimg.png
+aws s3 cp bootsimg.png s3://tubely-82931/bootsimg.png
+
+aws s3api list-object-versions \
+    --bucket tubely-82931 \
+    --prefix bootsimg.png --no-cli-pager > /tmp/versions.json
+
+VERSION_ID=$(jq -r '.Versions[0].VersionId' /tmp/versions.json)
+
+aws s3api delete-object --bucket tubely-82931 \
+    --key bootsimg.png \
+    --version-id $VERSION_ID
+
+# invalidate the cloudfront content 
+
+aws cloudfront create-invalidation \
+    --distribution-id c9191ae1 \
+    --paths "/landscape/*"
+
+aws cloudfront list-invalidations \
+    --distribution-id c9191ae1 \
+    --no-cli-pager > /tmp/invalidations.json

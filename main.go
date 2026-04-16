@@ -90,7 +90,7 @@ func main() {
 		log.Fatalf("failed loading config, %v", err)
 	}
 	s3Client := s3.NewFromConfig(s3Cfg, func(o *s3.Options) {
-		o.BaseEndpoint = aws.String("https://sturdy-palm-tree-9wx4q976p99cwj-4566.app.github.dev")
+		o.BaseEndpoint = aws.String("http://localhost:4566")
 		o.UsePathStyle = true
 	})
 
